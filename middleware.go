@@ -1,12 +1,13 @@
 package gomiddleware
 
 import (
+	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/paaavkata/go-logger/logger"
 	"github.com/spf13/viper"
 )
 
@@ -78,7 +79,7 @@ func NewMiddlewareConfigFromViper() *MiddlewareConfig {
 func LoggingMiddleware() echo.MiddlewareFunc {
 	return middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: "${time_rfc3339} ${remote_ip} ${method} ${uri} ${status} ${latency_human}\n",
-		Output: logger.GetOutput(),
+		Output: os.Stdout,
 	})
 }
 
@@ -134,7 +135,7 @@ func ErrorHandlerMiddleware() echo.MiddlewareFunc {
 				switch e := err.(type) {
 				case *echo.HTTPError:
 					statusCode = e.Code
-					message = e.Message
+					message = fmt.Sprint(e.Message)
 				default:
 					statusCode = http.StatusInternalServerError
 					message = "Internal Server Error"
