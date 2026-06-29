@@ -1,6 +1,6 @@
 module github.com/paaavkata/go-middleware
 
-go 1.23.3
+go 1.26.4
 
 require (
 	github.com/labstack/echo/v4 v4.11.4
