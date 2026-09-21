@@ -1,19 +1,20 @@
 # Go HTTP Middleware Library
 
-A shared library for HTTP middleware components across FileConvert microservices.
+A shared library of `labstack/echo/v4` middleware components. Pkg `gomiddleware`.
+
+> **Optional library, not part of the core platform stack.** Per the platform docs audit (2026-09-21), only conversion-service and k8s-scheduler import this within `backend_apps` (a few SecScanApp services also use it); identity-service, usage-service, cms-service, mcp-service, and payment-service do not. Importer counts are sourced from that audit and were not independently re-verified as part of this doc fix.
 
 ## Features
 
-- Rate limiting middleware
-- Logging middleware
-- Error handling middleware
-- Request validation middleware
-- Viper configuration integration
+- Logging, recovery, timeout, request-ID, gzip, body-limit, secure-headers, and error-handling middleware for echo
+- Viper configuration integration for timeout/body-limit settings
 - Default values with overrides
+
+There is **no rate-limiting middleware**. `MiddlewareConfig` still carries a `RateLimit` struct (`Requests`, `Duration`, `Store`, `RedisAddr`) populated by `NewMiddlewareConfigFromViper`, but no `RateLimitMiddleware` function exists in the code — those fields are currently unused.
 
 ## Configuration
 
-The library uses Viper for configuration management. Configuration can be provided through environment variables, configuration files, or direct configuration structs.
+The library uses Viper for configuration management, via `NewMiddlewareConfigFromViper()`.
 
 ### Environment Variables
 
@@ -23,101 +24,46 @@ The library uses Viper for configuration management. Configuration can be provid
 #### Body Limit Configuration
 - `MIDDLEWARE_BODY_LIMIT`: Maximum request body size (default: "2M")
 
-#### Rate Limit Configuration
-- `MIDDLEWARE_RATE_LIMIT_REQUESTS`: Maximum number of requests (default: 100)
-- `MIDDLEWARE_RATE_LIMIT_DURATION`: Time window for rate limiting (default: "1m")
-- `MIDDLEWARE_RATE_LIMIT_STORE`: Rate limit store type (memory, redis) (default: "memory")
-- `MIDDLEWARE_RATE_LIMIT_REDIS_ADDR`: Redis address for rate limiting (default: "localhost:6379")
+The `RateLimit` sub-config (`MIDDLEWARE_RATE_LIMIT_*`) is also read from Viper for forward-compatibility, but nothing in this library currently consumes it (no rate-limiting middleware exists).
 
 ## Usage
 
-### Basic Usage
-
 ```go
 import (
-    "github.com/file-convert/go-middleware"
+    gomiddleware "github.com/paaavkata/go-middleware"
     "github.com/labstack/echo/v4"
     "github.com/spf13/viper"
 )
 
 func main() {
-    // Initialize Viper
-    viper.SetConfigName("config")
-    viper.SetConfigType("yaml")
-    viper.AddConfigPath(".")
     viper.AutomaticEnv()
-    
-    if err := viper.ReadInConfig(); err != nil {
-        if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-            panic(fmt.Errorf("fatal error config file: %w", err))
-        }
-    }
 
     e := echo.New()
-    
-    // Create middleware configuration
+
     config := gomiddleware.NewMiddlewareConfigFromViper()
-    
-    // Add rate limiting middleware
-    e.Use(gomiddleware.RateLimitMiddleware(config))
-    
-    // Add logging middleware
+
     e.Use(gomiddleware.LoggingMiddleware())
-    
-    // Add error handling middleware
+    e.Use(gomiddleware.RecoverMiddleware())
+    e.Use(gomiddleware.RequestIDMiddleware())
+    e.Use(gomiddleware.TimeoutMiddleware(config))
+    e.Use(gomiddleware.BodyLimitMiddleware(config))
+    e.Use(gomiddleware.GzipMiddleware())
+    e.Use(gomiddleware.SecureMiddleware())
     e.Use(gomiddleware.ErrorHandlerMiddleware())
 }
 ```
 
-### Custom Configuration
-
-You can also provide custom configuration instead of using Viper:
-
-```go
-config := &gomiddleware.MiddlewareConfig{}
-
-// Timeout configuration
-config.Timeout.Duration = 60 * time.Second
-
-// Body limit configuration
-config.BodyLimit.Limit = "10M"
-
-// Rate limit configuration
-config.RateLimit.Requests = 1000
-config.RateLimit.Duration = 5 * time.Minute
-config.RateLimit.Store = "redis"
-config.RateLimit.RedisAddr = "redis:6379"
-
-// Use the configuration
-e.Use(gomiddleware.RateLimitMiddleware(config))
-```
-
 ## Middleware Components
 
-### Rate Limit Middleware
-Implements request rate limiting with configurable limits and storage backends.
-
-### Logging Middleware
-Provides request logging with configurable format and output.
-
-### Error Handler Middleware
-Provides consistent error handling and response formatting.
-
-### Body Limit Middleware
-Limits the size of incoming request bodies.
-
-### Timeout Middleware
-Adds request timeout handling.
-
-### Request ID Middleware
-Adds unique request IDs to each request.
-
-### Gzip Middleware
-Provides response compression using gzip.
-
-### Secure Middleware
-Adds security-related headers to responses.
+- `LoggingMiddleware()` — request logging
+- `RecoverMiddleware()` — panic recovery
+- `TimeoutMiddleware(config *MiddlewareConfig)` — request timeout (default 30s)
+- `RequestIDMiddleware()` — unique request IDs
+- `GzipMiddleware()` — response compression
+- `BodyLimitMiddleware(config *MiddlewareConfig)` — limits request body size (default "2M")
+- `SecureMiddleware()` — security-related response headers
+- `ErrorHandlerMiddleware()` — consistent error response formatting
 
 ## Note
 
-This library is designed to be used in conjunction with an API gateway. CORS and JWT handling are managed at the API gateway level, so these middleware components are not included in this library. If a request reaches a backend service, it has already been authenticated and authorized by the API gateway. 
+This library is designed to be used behind an API gateway. CORS and JWT handling are managed at the gateway level (Traefik + `traefik-plugin`), so those are not included here. If a request reaches a backend service, it has already been authenticated and authorized by the gateway.
