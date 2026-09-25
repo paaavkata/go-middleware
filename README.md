@@ -67,3 +67,13 @@ func main() {
 ## Note
 
 This library is designed to be used behind an API gateway. CORS and JWT handling are managed at the gateway level (Traefik + `traefik-plugin`), so those are not included here. If a request reaches a backend service, it has already been authenticated and authorized by the gateway.
+
+## `appid` subpackage — shared X-App-Id middleware
+
+`import "github.com/paaavkata/go-middleware/appid"` replaces the per-service
+`internal/middleware/app_id.go` copies. Byte-compatible: header `X-App-Id`,
+context key `app_id`, `400 {"status":"error","message":"X-App-Id header is required"}`.
+
+- `appid.AppIDMiddleware() echo.MiddlewareFunc`
+- `appid.AppID(c echo.Context) string` (alias `appid.AppIDFromContext`) — `""` when the route is not wrapped
+- `appid.AppIDContextKey = "app_id"`, `appid.AppIDHeader = "X-App-Id"`
