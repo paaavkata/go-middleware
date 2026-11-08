@@ -77,3 +77,17 @@ context key `app_id`, `400 {"status":"error","message":"X-App-Id header is requi
 - `appid.AppIDMiddleware() echo.MiddlewareFunc`
 - `appid.AppID(c echo.Context) string` (alias `appid.AppIDFromContext`) — `""` when the route is not wrapped
 - `appid.AppIDContextKey = "app_id"`, `appid.AppIDHeader = "X-App-Id"`
+
+## `clientip` subpackage: gateway-stamped client IP
+
+`import "github.com/paaavkata/go-middleware/clientip"` gives every service the same
+answer for "which IP is this request from". The gateway plugin strips inbound
+`X-Client-Ip` and stamps the address it derived per entrypoint (`Cf-Connecting-Ip`
+on the public Cloudflare entrypoint, the connection address on the VPN entrypoint).
+
+- `clientip.Header = "X-Client-Ip"`
+- `clientip.FromRequest(r *http.Request) string`: the header value when it is a valid IP,
+  else the host of `r.RemoteAddr` (direct in-cluster calls)
+- `clientip.FromEcho(c echo.Context) string`: same, for Echo handlers
+
+It never reads `X-Forwarded-For`; the leftmost entry of that header is client-chosen.
