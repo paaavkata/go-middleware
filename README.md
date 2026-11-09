@@ -119,3 +119,71 @@ Secrets are SealedSecrets `internal-auth` per namespace (keys = class names) in
 `infra/infra-gitops/platform/`; the gateway class lives only in `gateway-internal-auth` in `infra`
 for Traefik and in the verifier namespaces. Phase 7 replaces the implementation behind
 `Require`/`CallerClass` with gateway-signed identity and client-credentials tokens; call sites stay.
+
+## `identity` subpackage: gateway-signed identity and service principals
+
+`import "github.com/paaavkata/go-middleware/identity"` (since v0.5.0). One Echo middleware that
+tells "the gateway vouched for this identity" from "some pod wrote these headers".
+
+```go
+e := echo.New()
+e.Use(mgr.EchoMetricsMiddleware())
+e.Use(identity.Middleware(identity.Config{Service: "file-service", Registerer: mgr.Registry()}))
+// routes...
+internal := e.Group("/internal/v1", identity.RequireService("internal.call"))
+```
+
+Credentials, checked in this order:
+
+1. `X-Gateway-Identity`: HS256 compact JWS stamped by traefik-plugin (`identityAssertion: true`).
+   Checked: signature, `kid` (active or previous key), `exp` with 30 s leeway, `method`, and
+   `path_hash` against `X-Forwarded-Prefix + URL.Path`. When the header is present it decides,
+   valid or not.
+2. `Authorization: Bearer <token>`: RS256 client-credentials token of the operator realm (`infra`),
+   `iss == IDENTITY_SERVICE_ISSUER`, `aud` contains `IDENTITY_SERVICE_AUDIENCE`. The principal is
+   `azp`, its realm roles are the permission tags. Any other bearer counts as absent and logs
+   `reason=service_token_rejected`.
+3. `X-Internal-Token` (phase-6 bridge credential, any class, via `internalauth.Match`) while
+   `IDENTITY_ACCEPT_BRIDGE` is not `false`: principal `bridge` with tags `internal.call`, `tenant.*`.
+
+Modes (`GATEWAY_IDENTITY_MODE`):
+
+| Mode | Behaviour |
+|------|-----------|
+| `off` (default) | No-op; bumping the library is inert |
+| `shadow` | Verify, compare the assertion with the plain headers, log `gateway identity result=<..> reason=<..> claim=<..> path=<..>` for anything but agreement, count, always serve unchanged |
+| `enforce` | Valid assertion: rewrite `X-App-Id`, `X-User-Id`, `X-User-Uid`, `X-User-Email`, `X-Is-Admin`, `X-User-Roles`, `X-User-Plan` from the claims (empty claim deletes the header). Service or bridge principal: user headers deleted, `X-Is-Admin` answers 400 `impersonation_header`, `X-App-Id` outside the `tenant.<app>`/`tenant.*` tags answers 403 `tenant_not_allowed`. Nothing valid: 401 `{"status":"error","message":"gateway identity required"}` |
+
+`OPTIONS` always passes. Health and metrics are served by go-server on the metrics port, outside
+Echo, and are never affected. Metric: `gateway_identity_checks_total{service,result}` with result
+`ok`, `missing`, `invalid`, `mismatch`, `service`, `bridge`.
+
+Handlers: `identity.From(c)` returns `Identity{Kind user|anonymous|service|bridge, AppID, UserID,
+UserUID, Email, Roles, IsAdmin, Plan, Service, Tags, RequestID}`; `Allows(tag)` is true for admin
+users and principals holding the tag; `AllowsTenant(app)`. Route guards `RequireAdmin()`,
+`Require(tag)`, `RequireService(tag)` act in enforce mode only. `identity.Enforced()` lets a
+handler keep a legacy branch until enforcement.
+
+Environment:
+
+| Variable | Meaning |
+|----------|---------|
+| `GATEWAY_IDENTITY_MODE` | `off`, `shadow`, `enforce` |
+| `GATEWAY_IDENTITY_KEYS` | Active key(s) `kid:base64url[,kid:base64url]` (Secret `gateway-identity-keys`, key `active`) |
+| `GATEWAY_IDENTITY_KEYS_PREVIOUS` | Previous key, same format (key `previous`) |
+| `IDENTITY_SERVICE_ISSUER` | `https://auth.internal.cloudfusion.tech/realms/infra` |
+| `IDENTITY_SERVICE_JWKS_URL` | `http://keycloak-service.keycloak.svc:8080/realms/infra/protocol/openid-connect/certs` |
+| `IDENTITY_SERVICE_AUDIENCE` | This service's name, e.g. `file-service` |
+| `IDENTITY_ACCEPT_BRIDGE` | `false` retires the bridge fallback (default accepted) |
+
+Callers (service principals):
+
+```go
+ts := identity.NewTokenSourceFromEnv("aud:file-service") // IDENTITY_TOKEN_URL, IDENTITY_CLIENT_ID, IDENTITY_CLIENT_SECRET; nil when unset
+client := &http.Client{Transport: &identity.Transport{Base: &internalauth.Transport{}, Source: ts}}
+```
+
+`TokenSource` caches the token until `exp - 60s`, keeps using it until `exp` when Keycloak is
+unreachable (logs `service_token_refresh_failed`), and requests at most one token per lifetime.
+`identity.JWKS` (`NewJWKS(url)`, `Key(kid)`) is the realm key cache, also used by
+conversion-status-service.

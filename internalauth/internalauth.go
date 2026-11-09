@@ -146,6 +146,25 @@ func RequireGatewayIdentity(admin bool) echo.MiddlewareFunc {
 	}
 }
 
+// Match returns the class whose configured secret equals the request's
+// X-Internal-Token, or None. It neither logs nor rejects; go-middleware/identity
+// uses it for the bridge fallback. Secrets are read on every call.
+func Match(r *http.Request) Class {
+	token := []byte(r.Header.Get(Header))
+	if len(token) == 0 {
+		return None
+	}
+	matched := None
+	for _, c := range []Class{Gateway, Platform, Frontend, Jobs} {
+		for _, s := range secrets(c) {
+			if subtle.ConstantTimeCompare(token, s) == 1 {
+				matched = c
+			}
+		}
+	}
+	return matched
+}
+
 // CallerClass returns the class Require accepted, or None.
 func CallerClass(c echo.Context) Class {
 	v, _ := c.Get(contextKey).(Class)
