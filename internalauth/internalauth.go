@@ -39,8 +39,12 @@ const (
 
 const contextKey = "internalauth.class"
 
-// enforced reports whether rejections are enforced. INTERNAL_AUTH_ENFORCE=false
-// switches to log-only mode for the rollout window only.
+// Enforced reports whether rejections are enforced. INTERNAL_AUTH_ENFORCE=false
+// switches to log-only mode for the rollout window only; handlers that keep a
+// legacy branch (file-service machine access) consult it so log-only mode
+// really changes nothing.
+func Enforced() bool { return enforced() }
+
 func enforced() bool {
 	return !strings.EqualFold(os.Getenv("INTERNAL_AUTH_ENFORCE"), "false")
 }
