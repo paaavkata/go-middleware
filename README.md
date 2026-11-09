@@ -2,7 +2,7 @@
 
 A shared library of `labstack/echo/v4` middleware components. Pkg `gomiddleware`.
 
-> **Optional library, not part of the core platform stack.** Per the platform docs audit (2026-09-21), only conversion-service and k8s-scheduler import this within `backend_apps` (a few SecScanApp services also use it); identity-service, usage-service, cms-service, mcp-service, and payment-service do not. Importer counts are sourced from that audit and were not independently re-verified as part of this doc fix.
+Imported by every Go HTTP service on the platform (current tag v0.5.2; each service pins its own version in `go.mod`). The subpackages carry the shared request trust model: `appid` (X-App-Id), `clientip` (gateway-stamped client IP), `internalauth` (X-Internal-Token caller classes) and `identity` (gateway-signed identity and service principals, `GATEWAY_IDENTITY_MODE`). The full model is described in workspace `docs/INTERNAL_TRUST_MODEL.md`.
 
 ## Features
 
