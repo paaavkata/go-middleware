@@ -439,4 +439,13 @@ func TestTokenSource(t *testing.T) {
 	if _, err := ts.Token(t.Context()); err == nil {
 		t.Fatal("expired cached token must not be used")
 	}
+	// MinValidity: a cached token with less than MinValidity left is refreshed.
+	fail.Store(false)
+	long := &TokenSource{TokenURL: kc.URL, ClientID: "finding-service", ClientSecret: "s", Scope: "aud:file-service", MinValidity: 2 * time.Hour}
+	before := calls.Load()
+	_, _ = long.Token(t.Context())
+	_, _ = long.Token(t.Context())
+	if calls.Load()-before != 2 {
+		t.Fatalf("MinValidity 2h with 1h tokens must refetch every time, got %d fetches", calls.Load()-before)
+	}
 }

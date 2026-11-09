@@ -15,7 +15,7 @@ import (
 )
 
 // TokenSource obtains a service token with the client-credentials grant and
-// caches it until exp - 60 s. When a refresh fails the cached token is used
+// caches it until exp - max(60 s, MinValidity). When a refresh fails the cached token is used
 // until its exp and service_token_refresh_failed is logged.
 type TokenSource struct {
 	TokenURL     string
@@ -23,6 +23,10 @@ type TokenSource struct {
 	ClientSecret string
 	Scope        string // e.g. "aud:file-service"
 	HTTPClient   *http.Client
+	// MinValidity is the lifetime a returned token must still have; a cached
+	// token closer to exp is refreshed. k8s-scheduler sets it to the longest
+	// job deadline so every injected job token outlives its job. Default 60 s.
+	MinValidity time.Duration
 
 	mu      sync.Mutex
 	token   string
@@ -46,7 +50,8 @@ func (t *TokenSource) Token(ctx context.Context) (string, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := time.Now()
-	if t.token != "" && now.Before(t.expires.Add(-60*time.Second)) {
+	margin := max(t.MinValidity, 60*time.Second)
+	if t.token != "" && now.Before(t.expires.Add(-margin)) {
 		return t.token, nil
 	}
 	tok, exp, err := t.fetch(ctx)

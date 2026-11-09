@@ -122,7 +122,7 @@ for Traefik and in the verifier namespaces. Phase 7 replaces the implementation 
 
 ## `identity` subpackage: gateway-signed identity and service principals
 
-`import "github.com/paaavkata/go-middleware/identity"` (since v0.5.0). One Echo middleware that
+`import "github.com/paaavkata/go-middleware/identity"` (since v0.5.0; `TokenSource.MinValidity` since v0.5.1). One Echo middleware that
 tells "the gateway vouched for this identity" from "some pod wrote these headers".
 
 ```go
@@ -183,7 +183,8 @@ ts := identity.NewTokenSourceFromEnv("aud:file-service") // IDENTITY_TOKEN_URL, 
 client := &http.Client{Transport: &identity.Transport{Base: &internalauth.Transport{}, Source: ts}}
 ```
 
-`TokenSource` caches the token until `exp - 60s`, keeps using it until `exp` when Keycloak is
+`TokenSource` caches the token until `exp - max(60s, MinValidity)` (k8s-scheduler sets
+`MinValidity` to the longest job deadline so each injected job token outlives its job), keeps using it until `exp` when Keycloak is
 unreachable (logs `service_token_refresh_failed`), and requests at most one token per lifetime.
 `identity.JWKS` (`NewJWKS(url)`, `Key(kid)`) is the realm key cache, also used by
 conversion-status-service.
