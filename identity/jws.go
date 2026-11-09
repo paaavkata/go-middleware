@@ -73,6 +73,13 @@ func gatewayPath(r *http.Request) string {
 	return r.Header.Get("X-Forwarded-Prefix") + r.URL.Path
 }
 
+// strippedRoot covers stripPrefix of the bare prefix: the gateway saw
+// "/api/mcp", Traefik forwards "/" with X-Forwarded-Prefix "/api/mcp".
+func strippedRoot(r *http.Request, hash string) bool {
+	p := r.Header.Get("X-Forwarded-Prefix")
+	return r.URL.Path == "/" && p != "" && hash == pathHash(r.Method, p)
+}
+
 // splitJWS decodes a compact JWS into header JSON, payload JSON, signing input
 // and signature.
 func splitJWS(tok string) (hdr, payload []byte, signing string, sig []byte, err error) {
@@ -122,7 +129,7 @@ func verifyAssertion(tok string, keys keySet, r *http.Request, now time.Time) (c
 	if c.Method != r.Method {
 		return c, errors.New("wrong_method")
 	}
-	if c.PathHash != pathHash(r.Method, gatewayPath(r)) {
+	if c.PathHash != pathHash(r.Method, gatewayPath(r)) && !strippedRoot(r, c.PathHash) {
 		return c, errors.New("wrong_path")
 	}
 	return c, nil

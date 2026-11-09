@@ -153,6 +153,8 @@ func TestVerifyAssertion(t *testing.T) {
 		{"missing prefix", sign(good, "k1", key1), mk("GET", "/v1/x", ""), "wrong_path"},
 		{"unstripped path without prefix", sign(good, "k1", key1), mk("GET", "/api/file/v1/x", ""), ""},
 		{"malformed", "abc", mk("GET", "/v1/x", "/api/file"), "malformed"},
+		{"stripped bare prefix", sign(func() claims { c := good; c.PathHash = pathHash("GET", "/api/mcp"); return c }(), "k1", key1), mk("GET", "/", "/api/mcp"), ""},
+		{"root without prefix stays bound", sign(func() claims { c := good; c.PathHash = pathHash("GET", "/api/mcp"); return c }(), "k1", key1), mk("GET", "/", ""), "wrong_path"},
 	} {
 		_, err := verifyAssertion(tc.tok, keys, tc.req, now)
 		got := ""
