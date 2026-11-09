@@ -91,3 +91,31 @@ on the public Cloudflare entrypoint, the connection address on the VPN entrypoin
 - `clientip.FromEcho(c echo.Context) string`: same, for Echo handlers
 
 It never reads `X-Forwarded-For`; the leftmost entry of that header is client-chosen.
+
+## `internalauth` subpackage: internal caller classes (since v0.4.0)
+
+`import "github.com/paaavkata/go-middleware/internalauth"` verifies the `X-Internal-Token`
+header (`internalauth.Header`) that identifies an in-cluster caller class:
+`internalauth.Gateway`, `Platform`, `Frontend`, `Jobs`.
+
+Verifier side:
+
+- `internalauth.Require(classes ...Class) echo.MiddlewareFunc`: accepts a token matching one of
+  the classes, 401 otherwise, 503 when an accepted class has no secret configured (fail closed).
+  Secrets come from `INTERNAL_TOKEN_<CLASS>` (`INTERNAL_TOKEN_GATEWAY`, `_PLATFORM`,
+  `_FRONTEND`, `_JOBS`), value `current` or `current,previous` for rotation. Compared in
+  constant time, read once when `Require` is called.
+- `internalauth.RequireGatewayIdentity(admin bool)`: chain after `Require`; when the caller is
+  the gateway class it also requires `X-Is-Admin: true` (admin) or a non-empty `X-User-Id`.
+  Pod classes pass unchanged.
+- `internalauth.CallerClass(c) Class`: the accepted class, or `None`.
+- `INTERNAL_AUTH_ENFORCE=false`: log-only mode for the rollout window (logs route, class,
+  user agent; never rejects). Removed once every verifier enforces in prod.
+
+Caller side: `internalauth.Stamp(req)` or `&http.Client{Transport: &internalauth.Transport{}}`
+stamp the caller's own class secret from `INTERNAL_TOKEN` (first value of a comma list).
+
+Secrets are SealedSecrets `internal-auth` per namespace (keys = class names) in
+`infra/infra-gitops/platform/`; the gateway class lives only in `gateway-internal-auth` in `infra`
+for Traefik and in the verifier namespaces. Phase 7 replaces the implementation behind
+`Require`/`CallerClass` with gateway-signed identity and client-credentials tokens; call sites stay.
